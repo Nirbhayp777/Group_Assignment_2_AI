@@ -1,7 +1,7 @@
 # PS2 — Plan Analysis Report
 
 **Domain:** Mars Rover (`Domain.pddl`)  
-**Planner:** Custom Python BFS (optimal) + Greedy Best-First Search (satisficing)  
+**Planner:** Custom Python BFS (optimal), A* with an admissible heuristic (optimal), and Greedy Best-First Search (satisficing)  
 **Scenarios:** Base (5 rocks) · Extended (7 rocks, dust-storm topology)
 
 ---
@@ -16,56 +16,48 @@
 
 | Algorithm | Plan Length | States Expanded | Time |
 |-----------|------------|-----------------|------|
-| BFS (optimal) | **25 actions** | 319 391 | ~4.2 s |
-| Greedy BFS (satisficing) | **33 actions** | 159 | ~7 ms |
+| BFS (optimal) | **25 actions** | 319,391 | ~4.2 s |
+| A* (optimal) | **25 actions** | 1,497 | ~4.7 ms |
+| Greedy BFS (satisficing) | **33 actions** | 159 | ~7 ms |】【：】【“】【}eriwa
 
 **Difference: 8 extra actions in the satisficing plan.**
 
-The optimal (BFS) plan is shorter because BFS guarantees the minimum number of actions to reach the goal. It achieves this by:
-
-1. **Picking up the drill early and batching hard-rock collection.** In the BFS plan, the rover goes straight to SiteE (3 moves), picks up the drill (step 4), then collects Rock5 (SiteF) in Bay1 and Rock3 (SiteC) in Bay2 on the same loop — both hard rocks are collected before the first deposit trip back to Base. This eliminates duplicate travel between the drill and the hard-rock sites.
-
-2. **Using both bays simultaneously.** The optimal plan carries two rocks at once on the return trip (steps 6–11: Bay1=Rock5, Bay2=Rock3), depositing both when back at Base. The satisficing plan carries only one rock per trip in most cases, leading to extra travel.
-
-3. **Greedy BFS picks "easy" goals first.** GBFS resolves whichever unsatisfied goal facts are easiest to reach (soft rocks near Base), collecting Rock1, Rock2, Rock4 individually before attempting hard rocks. This "greedy" one-at-a-time strategy avoids the upfront detour to SiteE for the drill and is fast to compute (159 expanded states vs. 319 391), but at the cost of more total moves.
-
-In summary, the satisficing planner makes locally good decisions but misses global optimisations like simultaneous multi-rock transport and opportunistic drill pick-up.
+The optimal plan is shorter because BFS and A* both guarantee a minimum-action plan. The retained A* plan first batches Rock2 and Rock4 into one trip, then collects both hard rocks on one excursion after picking up the drill at SiteE. It uses both bays for each pair. GBFS collects rocks in a less efficient order and has a 33-action plan, eight actions longer than the optimal 25-action plan. GBFS expands far fewer states (159 vs. 1,497 for A*) and runs faster, trading optimality for search speed.
 
 ---
 
 #### Extended Scenario
 
-BFS is computationally intractable for the extended scenario (7 rocks × 2 bays × drill state × 7 locations ≈ 10⁸+ states). Only the GBFS result is available:
+An optimal A* search with an admissible heuristic was run for the extended scenario. Its complete action sequence and search statistics are included in `planner_output.txt` under “Optimal A* Plan Outputs.”
 
-| Algorithm | Plan Length | States Expanded |
-|-----------|------------|-----------------|
-| GBFS (satisficing) | **61 actions** | 802 |
+| Algorithm | Plan Length | States Expanded | Time |
+|-----------|------------:|----------------:|-----:|
+| A* (optimal) | **40 actions** | 12,861 | ~40 ms |
+| GBFS (satisficing) | **61 actions** | 802 | ~14 ms |
 
-The extended plan is significantly longer than the base (61 vs. 33 satisficing) for two reasons:
-- **Two more rocks** (Rock6, Rock7) each require their own collect-and-deposit cycle.
-- **Longer routes** to SiteB and SiteD after the Base↔SiteB link is removed (see Q3 below).
+The satisficing plan is 21 actions longer. It handles several rocks individually, whereas the optimal plan batches Rock2 and Rock4 together, Rock5 and Rock7 together, then Rock6 and Rock3 together. The optimal plan costs more search than GBFS but substantially fewer plan actions. The extended plan is also longer than the base optimal plan (40 vs. 25 actions) because it includes two additional rocks and the storm detour to SiteB/SiteD.
 
 ---
 
 ### Q2. How does the optimal plan use the two storage bays, and when is the drill picked up?
 
-**Drill acquisition (steps 1–4):**  
-The optimal BFS plan sends the rover directly to SiteE via Base→SiteA→SiteC→SiteE on the very first trip. The drill is picked up at step 4, as early as possible in the plan. This is essential because both hard rocks (Rock3 at SiteC, Rock5 at SiteF) require the drill before they can be collected; getting the drill first eliminates all future backtracking to SiteE.
+**Drill acquisition (base A* plan, steps 9–12):**  
+The optimal base plan visits SiteE via Base→SiteA→SiteC→SiteE and picks up the drill at step 12 (the A* plan shown in `planner_output.txt`). Both hard rocks require the drill before collection; acquiring it before visiting SiteF and SiteC avoids a separate trip to SiteE.
 
 **Two-bay utilisation:**
 
 | Steps | Bay1 | Bay2 | Description |
 |-------|------|------|-------------|
-| 6 | Rock5 | — | collect-hard Rock5 at SiteF |
-| 9 | Rock5 | Rock3 | collect-hard Rock3 at SiteC → both bays full |
-| 12 | Rock5 | ∅ | deposit Rock3 at Base |
-| 14 | Rock5 | Rock1 | collect-soft Rock1 at SiteA → both bays full again |
-| 16–17 | ∅ | ∅ | deposit Rock1 (Bay2), deposit Rock5 (Bay1) at Base |
-| 20 | Rock4 | — | collect-soft Rock4 at SiteD |
-| 22 | Rock4 | Rock2 | collect-soft Rock2 at SiteB → both bays full |
-| 24–25 | ∅ | ∅ | deposit Rock2 (Bay2), deposit Rock4 (Bay1) at Base |
+| 2 | Rock2 | — | collect-soft Rock2 at SiteB |
+| 4 | Rock2 | Rock4 | collect-soft Rock4 at SiteD → both bays full |
+| 7–8 | ∅ | ∅ | deposit Rock2 and Rock4 at Base |
+| 14 | Rock5 | — | collect-hard Rock5 at SiteF after picking up the drill |
+| 17 | Rock5 | Rock3 | collect-hard Rock3 at SiteC → both bays full |
+| 20, 25 | ∅ | ∅ | deposit Rock5 and Rock3 at Base |
 
-**Key insight:** The optimal planner uses both bays simultaneously (steps 6–11 carry two hard rocks; steps 20–23 carry two soft rocks), and it staggers deposits — it deposits Bay2 first at step 12 to free it up for Rock1 on the return leg, while Bay1 (carrying Rock5) waits until step 17. This staging allows the rover to avoid an extra round trip to Base.
+The action numbers above refer to the optimal A* plan in `planner_output.txt`.
+
+**Key insight:** The optimal base plan uses both bays to carry Rock2 and Rock4 in one trip, then Rock5 and Rock3 in another. It also collects the two hard rocks in a single excursion after picking up the drill.
 
 ---
 
@@ -81,27 +73,29 @@ In the extended scenario neither of these paths exists.
 
 #### How the rover reaches SiteD
 
-The planner uses the **one-way SiteC→SiteD slope** (steps 24 and 53):
+The extended A* plan uses the **one-way SiteC→SiteD slope** at step 3 of the extended A* action sequence:
 
 ```
 Base → SiteA → SiteC → SiteD    (3 moves, using the one-way slope)
 ```
 
-This is the only route to SiteD when Base↔SiteB is blocked. The slope is strictly one-way (SiteC→SiteD only), so the rover **cannot return via SiteD→SiteC**. Instead, it exits via:
+This is the route used by the submitted plan. The slope is strictly one-way (SiteC→SiteD only), so the rover **cannot return via SiteD→SiteC**. Instead, it exits via:
 
 ```
 SiteD → SiteE → SiteC    (2 moves back toward the main network)
 ```
 
+The slope is not the only possible route to SiteD: the map also allows SiteC→SiteE→SiteD using the two bidirectional links SiteC↔SiteE and SiteD↔SiteE. The slope gives the submitted plan a shorter route.
+
 #### How the rover reaches SiteB
 
-Since Base↔SiteB is blocked, the only remaining route to SiteB goes through SiteD (steps 51–54):
+Since Base↔SiteB is blocked, the submitted extended A* plan reaches SiteB through SiteD (steps 1–6 in its action sequence):
 
 ```
 Base → SiteA → SiteC → SiteD → SiteB    (4 moves)
 ```
 
-The one-way SiteC→SiteD slope is used here as well (step 53). After collecting Rock2 at SiteB, the rover exits via:
+The one-way SiteC→SiteD slope is used here as well (step 3). After collecting Rock2 at SiteB, the rover exits via:
 
 ```
 SiteB → SiteD → SiteE → SiteC → SiteA → Base    (5 moves)
@@ -113,14 +107,14 @@ SiteB → SiteD → SiteE → SiteC → SiteA → Base    (5 moves)
 |-------|--------------|-------------------|
 | Base → SiteB | Base→SiteB (1 move) | Base→SiteA→SiteC→SiteD→SiteB (4 moves) |
 | Base → SiteD | Base→SiteB→SiteD (2 moves) | Base→SiteA→SiteC→SiteD (3 moves, one-way slope) |
-| Return from SiteD | SiteD→SiteB→Base (2 moves) | SiteD→SiteE→SiteC→SiteA→Base (4 moves) |
+| Return after collecting SiteD and SiteB rocks | SiteD→SiteB→Base (2 moves) | SiteB→SiteD→SiteE→SiteC→SiteA→Base (5 moves) |
 
-The one-way SiteC→SiteD slope is **critical** in the extended scenario — it is the only way to reach both SiteD and SiteB after the dust storm blocks the direct Base↔SiteB route. Without it, Rock2 (SiteB) and Rock4 (SiteD) would be unreachable.
+The one-way SiteC→SiteD slope is **used by the submitted plan** and shortens its route to SiteD and SiteB. It is not strictly necessary for reachability: without it, the rover could travel Base→SiteA→SiteC→SiteE→SiteD→SiteB, then return through SiteD→SiteE→SiteC→SiteA→Base. Thus Rock2 and Rock4 remain reachable via the two-way SiteC↔SiteE and SiteD↔SiteE links.
 
 ---
 
 ## Planner Notes
 
-- **BFS** explores states in breadth-first order and is guaranteed to find the shortest (action-count optimal) plan. It is used for the base scenario.
-- **Greedy BFS (GBFS)** uses the heuristic `h(s) = number of unsatisfied goal facts` to guide search greedily. It is fast (sub-millisecond to seconds) but produces plans that may be longer than optimal. It is used for both scenarios, and is the only feasible approach for the extended scenario.
-- All plans are **formally verified** by simulating each action on the initial state and confirming all goal facts hold in the final state (see `planner_output.txt`).
+- **BFS** (base scenario) and **A*** with an admissible heuristic (both scenarios) provide optimal plans; the full results are in `planner_output.txt`.
+- **Greedy BFS (GBFS)** is satisficing, not optimal; its plans are included for comparison.
+- Goal checks for each planner run are recorded in `planner_output.txt`.
